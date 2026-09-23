@@ -1,128 +1,114 @@
+import { useState } from "react";
 import "./styles.css";
+import { StoreProvider, useStore } from "./store";
+import { LAYERS, occupiedMap } from "./logic";
+import ReviewWorkbench from "./components/ReviewWorkbench";
+import CabinetBoard from "./components/CabinetBoard";
+import Explorer from "./components/Explorer";
+import { DetailContext, SpecimenDetail } from "./components/ui";
 
-const project = {
-  "sourceNo": 9,
-  "id": "hxyfront-62007",
-  "port": 62007,
-  "title": "植物标本馆入库",
-  "domain": "植物标本馆",
-  "prompt": "开发一个植物标本馆压制标本入库前端项目，工作人员可以录入采集号、物种名称、采集地点、海拔、生境描述、采集人、压制状态、鉴定状态和馆藏位置。页面需要有入库队列、鉴定状态筛选、采集地点信息卡、馆藏柜位记录和单份标本详情页。",
-  "palette": [
-    "#166534",
-    "#0f766e",
-    "#ca8a04"
-  ],
-  "metrics": [
-    "入库队列",
-    "待鉴定",
-    "已上柜",
-    "采集点"
-  ],
-  "filters": [
-    "待压制",
-    "待鉴定",
-    "已入库",
-    "需补照"
-  ],
-  "fields": [
-    "采集号",
-    "物种名称",
-    "采集地点",
-    "海拔",
-    "生境描述",
-    "馆藏位置"
-  ],
-  "records": [
-    [
-      "HX-240615-01",
-      "槭属待定",
-      "海拔1420m",
-      "待鉴定"
-    ],
-    [
-      "HX-240615-08",
-      "蕨类",
-      "阴湿沟谷",
-      "已压制"
-    ],
-    [
-      "HX-240616-03",
-      "菊科",
-      "柜位B-12-04",
-      "已入库"
-    ]
-  ]
-};
+type Tab = "review" | "cabinet" | "explorer";
 
-function App() {
+const TABS: { key: Tab; label: string }[] = [
+  { key: "review", label: "批量鉴定复核" },
+  { key: "cabinet", label: "柜位迁移" },
+  { key: "explorer", label: "标本总览" },
+];
+
+function Metrics({ onGo }: { onGo: (t: Tab) => void }) {
+  const { state } = useStore();
+  const inBatch = new Set(state.batches.flatMap((b) => b.ids));
+
+  const pending = state.specimens.filter((s) => s.status === "待鉴定").length;
+  const batching = inBatch.size;
+  const held = state.specimens.filter((s) => s.status === "迁柜暂停").length;
+  const ready = state.specimens.filter((s) => s.status === "已鉴定").length;
+  const stored = state.specimens.filter((s) => s.status === "已入库").length;
+  const occ = occupiedMap(state.specimens);
+  const totalCap = LAYERS.reduce((sum, l) => sum + l.capacity, 0);
+
+  const cards = [
+    { label: "待鉴定", value: pending, sub: `其中 ${batching} 份已组批`, tab: "review" as Tab, alert: false },
+    { label: "已鉴定·待迁柜", value: ready, sub: "结论已写入", tab: "cabinet" as Tab, alert: false },
+    { label: "迁柜暂停", value: held, sub: held ? "目标层满位，待空位重选" : "无满位等待", tab: "cabinet" as Tab, alert: held > 0 },
+    { label: "已入库 / 柜位", value: stored, sub: `共占用 ${Array.from(occ.values()).reduce((n, m) => n + m.size, 0)}/${totalCap} 位`, tab: "cabinet" as Tab, alert: false },
+  ];
+
   return (
-    <main className="app">
-      <section className="hero">
-        <p>{project.id} · 源提示词{project.sourceNo} · Port {project.port}</p>
-        <h1>{project.title}</h1>
-        <span>{project.prompt}</span>
-      </section>
-
-      <section className="metrics">
-        {project.metrics.map((metric: string, index: number) => (
-          <article key={metric}>
-            <small>{metric}</small>
-            <strong>{[86, 14, 7, 32][index] ?? 12}</strong>
-          </article>
-        ))}
-      </section>
-
-      <section className="workspace">
-        <aside className="panel">
-          <h2>{project.domain}筛选</h2>
-          <div className="chips">
-            {project.filters.map((item: string) => (
-              <button key={item}>{item}</button>
-            ))}
-          </div>
-        </aside>
-
-        <section className="panel form-panel">
-          <div className="heading">
-            <div>
-              <p>专业字段</p>
-              <h2>新增记录</h2>
-            </div>
-            <button className="primary">保存草稿</button>
-          </div>
-          <div className="field-grid">
-            {project.fields.map((field: string) => (
-              <label key={field}>
-                <span>{field}</span>
-                <input placeholder={"填写" + field} />
-              </label>
-            ))}
-          </div>
-        </section>
-      </section>
-
-      <section className="panel">
-        <div className="heading">
-          <div>
-            <p>历史记录</p>
-            <h2>近期工作台</h2>
-          </div>
-          <button>导出摘要</button>
-        </div>
-        <div className="records">
-          {project.records.map((record: string[], index: number) => (
-            <article key={record.join("-")}>
-              <b>{String(index + 1).padStart(2, "0")}</b>
-              <div>
-                <h3>{record[0]}</h3>
-                <p>{record.slice(1).join(" · ")}</p>
-              </div>
-            </article>
-          ))}
-        </div>
-      </section>
-    </main>
+    <section className="metrics">
+      {cards.map((c) => (
+        <button
+          key={c.label}
+          className={`metric-card ${c.alert ? "metric-alert" : ""}`}
+          onClick={() => onGo(c.tab)}
+        >
+          <small>{c.label}</small>
+          <strong>{c.value}</strong>
+          <span>{c.sub}</span>
+        </button>
+      ))}
+    </section>
   );
 }
 
-export default App;
+function Shell() {
+  const { state, dispatch } = useStore();
+  const [tab, setTab] = useState<Tab>("review");
+  const [detailId, setDetailId] = useState<string | null>(null);
+
+  const queueHeld = state.specimens.some((s) => s.status === "迁柜暂停");
+
+  return (
+    <DetailContext.Provider value={setDetailId}>
+      <main className="app">
+        <header className="hero">
+          <div>
+            <p>植物标本馆 · 馆藏柜位同物种批量鉴定复核</p>
+            <h1>批量复核 · 柜位迁移工作台</h1>
+            <span>
+              鉴定员从待鉴定标本按物种组批：组内采集人不同或海拔差超过 300 米须写明复核依据，缺说明的标本不进入本次结论；
+              复核通过后统一写入鉴定人与日期，按物种代码迁至指定柜层，目标层满位则暂停迁移、结论保留、标本留原柜，可从该层空位逐份重选。
+            </span>
+          </div>
+          <button
+            className="reset-btn"
+            onClick={() => {
+              if (confirm("确定恢复演示数据？当前本地数据将被清空。")) dispatch({ type: "RESET" });
+            }}
+          >
+            恢复演示数据
+          </button>
+        </header>
+
+        <Metrics onGo={setTab} />
+
+        <nav className="tabs">
+          {TABS.map((t) => (
+            <button key={t.key} className={tab === t.key ? "active" : ""} onClick={() => setTab(t.key)}>
+              {t.label}
+              {t.key === "cabinet" && queueHeld && <span className="tab-dot" title="有满位暂停" />}
+            </button>
+          ))}
+        </nav>
+
+        {tab === "review" && <ReviewWorkbench />}
+        {tab === "cabinet" && <CabinetBoard />}
+        {tab === "explorer" && <Explorer />}
+
+        <footer className="footnote">
+          所有柜位轨迹、待鉴定计数与鉴定结论仅保存在本浏览器（localStorage），重开页面仍可查询。
+        </footer>
+      </main>
+
+      {detailId && <SpecimenDetail id={detailId} onClose={() => setDetailId(null)} />}
+    </DetailContext.Provider>
+  );
+}
+
+export default function App() {
+  return (
+    <StoreProvider>
+      <Shell />
+    </StoreProvider>
+  );
+}
